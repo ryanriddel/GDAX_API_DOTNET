@@ -16,48 +16,113 @@ using System.Net.WebSockets;
 
 namespace gdax_rsquared
 {
+    public enum Side
+    {
+        Buy,
+        Sell
+    }
     class API_Interface
     {
-
+        public string PRODUCT_BTCperUSD = "BTC-USD";
         public const string sandboxRestURL = "https://api-public.sandbox.gdax.com";
         public const string sandboxWebsocketURL = "wss://ws-feed-public.sandbox.gdax.com";
-        public const string sandboxAPIKey = "cd3295c7efebd973e65083ad8059be6d";
-        public const string sandboxAPISecret = "+haqm+0GMl4AwXOBMPo03s2ICTx4+kqG8Tyw+JcmPA4zDfa9l1rs4ZwmC6y8Ty0JslhdezQqtUjjZcNaiLpF/w==";
-        public const string sandboxAPIPassphrase = "ztg3s5dyi5";
-        public const string applicationName = "rsquaredtest";
+        private const string sandboxAPIKey = "cd3295c7efebd973e65083ad8059be6d";
+        private const string sandboxAPISecret = "+haqm+0GMl4AwXOBMPo03s2ICTx4+kqG8Tyw+JcmPA4zDfa9l1rs4ZwmC6y8Ty0JslhdezQqtUjjZcNaiLpF/w==";
+        private const string sandboxAPIPassphrase = "ztg3s5dyi5";
+        private const string sandboxApplicationName = "rsquaredtest";
         public const string liveRestURL = "https://api.gdax.com";
 
+        private string api_secret = sandboxAPISecret;
+        private string api_passphrase = sandboxAPIPassphrase;
+        private string api_key = sandboxAPIKey;
+        private string application_name = sandboxApplicationName;
+
+        
         GdaxClient client;
         RealtimeDataFeed mdataFeed;
 
         public API_Interface()
         {
-
-        }
-
-        public async Task Run()
-        {
-
-            Console.WriteLine("Press any key to begin the test.");
-            Console.ReadKey();
             var credentials = new GdaxCredentials(sandboxAPIKey, sandboxAPIPassphrase, sandboxAPISecret);
-            Console.WriteLine("Authentication successful");
-
-
-
             client = new GdaxClient(credentials)
             {
                 UseSandbox = true
             };
+        }
+
+        public API_Interface(string apiKey, string apiSecret, string apiPassphrase)
+        {
+            SetCredentials(apiKey, apiPassphrase, apiSecret);
+        }
+
+        public void SetCredentials(string apiKey, string apiSecret, string apiPassphrase, bool useSandbox = false)
+        {
+            var credentials = new GdaxCredentials(apiKey, apiPassphrase, apiSecret);
+
+            client = new GdaxClient(credentials)
+            {
+                UseSandbox = useSandbox
+            };
+
+            Console.WriteLine("GDAX authentication successful.");
+        }
+
+        public Order SubmitMarketOrder(string product, Side side, decimal quantity)
+        {
+
+        }
+
+        public Order SubmitLimitOrder(string product, Side side, decimal quantity, decimal price)
+        {
+
+        }
+
+        public Order SubmitStopOrder()
+        {
+
+        }
+        public Order CancelLimitOrder()
+        {
+
+        }
+
+        public List<Order> GetAllOrders()
+        {
+
+        }
+
+        public Order GetOrder(ulong orderID)
+        {
+
+        }
+
+        public Ledger GetPositions()
+        {
+
+        }
+
+        public void SubscribeToTicker(string product, Action<RealtimeMessage> callbackMethod = null)
+        {
+
+        }
+
+        /// <summary>
+        /// Subscribes to Bid and Ask Level 2 data for a specific product.
+        /// </summary>
+        /// <param name="product"></param>
+        /// <returns>A tuple with 'First' being the bids and 'Second' being the asks.</returns>
+        Tuple<List<BidAskOrder>,List<BidAskOrder>> SubscribeToLevel2(string product)
+        {
+
+        }
+        public async Task Run()
+        {
+
+            Console.WriteLine("Press any key to begin the test.");
+            
 
             ISystemClock clk = new Gdax.Internal.SystemClock();
-
-
-            GdaxAuthenticationHandler authHandler = new GdaxAuthenticationHandler(credentials);
-            authHandler.InnerHandler = new NoopHandler();
-
-            HttpClient http = new HttpClient(authHandler);
-
+            
             /*
             IList<Account> accounts;
 
@@ -130,8 +195,8 @@ namespace gdax_rsquared
             }*/
 
             RealtimeDataFeed mdataFeed = new RealtimeDataFeed(client);
-            mdataFeed.Updated += MdataFeed_Updated;
-            mdataFeed.Subscribe("BTC-USD", onMsgReceived);
+            mdataFeed.OnMarketDataMessageReceived += MdataFeed_Updated;
+            mdataFeed.Subscribe("BTC-USD");
             Console.ReadKey();
 
             
@@ -142,7 +207,7 @@ namespace gdax_rsquared
         {
             Console.WriteLine("MktData: " + msg.Type + "   " + msg.Sequence + "    " + msg.Price);
         }
-        private void MdataFeed_Updated(object sender, EventArgs e)
+        private void MdataFeed_Updated(RealtimeMessage msg, List<BidAskOrder> bids, List<BidAskOrder> asks)
         {
             
         }

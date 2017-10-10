@@ -12,6 +12,8 @@ using WebSocket4Net;
 
 namespace gdax_rsquared
 {
+    public delegate void MarketDataMessageHandler(RealtimeMessage msg, List<BidAskOrder> bids, List<BidAskOrder> asks);
+
     public class RealtimeDataFeed 
     {
         private const String Product = "BTC-USD";
@@ -22,6 +24,10 @@ namespace gdax_rsquared
 
         GdaxClient gdaxClient;
 
+        public event EventHandler Updated;
+        public event MarketDataMessageHandler OnMarketDataMessageReceived;
+
+
         public RealtimeDataFeed(GdaxClient client) 
         {
             gdaxClient = client;
@@ -30,78 +36,9 @@ namespace gdax_rsquared
 
             this.Asks = new List<BidAskOrder>();
             this.Bids = new List<BidAskOrder>();
-
-            
         }
 
-        public void StartFeed()
-        {
-            this.ResetStateWithFullOrderBook();
-        }
-        private List<BidAskOrder> _sells
-        {
-            get; set;
-        }
-        private List<BidAskOrder> _buys
-        {
-            get; set;
-        }
-
-        public List<BidAskOrder> Asks
-        {
-            get; set;
-        }
-        public List<BidAskOrder> Bids
-        {
-            get; set;
-        }
-
-        public Decimal Spread
-        {
-            get
-            {
-                lock (this._spreadLock)
-                {
-                    if (!this.Bids.Any() || !this.Asks.Any())
-                    {
-                        return 0;
-                    }
-
-                    var maxBuy = this.Bids.Select(x => x.Price).Max();
-                    var minSell = this.Asks.Select(x => x.Price).Min();
-
-                    return minSell - maxBuy;
-                }
-            }
-        }
-
-        public event EventHandler Updated;
-        List<BidAskOrder> convertBidsToBuys(OrderBook ob)
-        {
-            List<BidAskOrder> baoList = new List<BidAskOrder>();
-            for(int i=0; i<ob.Bids.Count; i++)
-            {
-                BidAskOrder bao = new BidAskOrder();
-                bao.Id = ob.Bids[i][0];
-                bao.Price = Convert.ToDecimal(ob.Bids[i][1]);
-                bao.Size = Convert.ToDecimal(ob.Bids[i][2]);
-                baoList.Add(bao);
-            }
-            return baoList;
-        }
-        List<BidAskOrder> convertAsksToSells(OrderBook ob)
-        {
-            List<BidAskOrder> baoList = new List<BidAskOrder>();
-            for (int i = 0; i < ob.Asks.Count; i++)
-            {
-                BidAskOrder bao = new BidAskOrder();
-                bao.Id = ob.Asks[i][0];
-                bao.Price = Convert.ToDecimal(ob.Asks[i][1]);
-                bao.Size = Convert.ToDecimal(ob.Asks[i][2]);
-                baoList.Add(bao);
-            }
-            return baoList;
-        }
+        
 
         private async void ResetStateWithFullOrderBook()
         {
@@ -143,20 +80,33 @@ namespace gdax_rsquared
 
             else if (message is RealtimeOpen)
             {
+                //limit order has been opened
             }
 
             else if (message is RealtimeDone)
             {
+                
                 var doneMessage = message as RealtimeDone;
+                if(doneMessage.Reason == "filled")
+                {
+
+                }
+                else
+                {
+                    //order has been cancelled
+                }
                 this.OnDone(doneMessage);
             }
 
             else if (message is RealtimeMatch)
             {
+                //new trade happened
             }
 
             else if (message is RealtimeChange)
             {
+                //an order has been modified
+                return;
             }
 
             this.OnUpdated();
@@ -212,26 +162,22 @@ namespace gdax_rsquared
             }
         }
 
-        public async void Subscribe(String product, Action<RealtimeMessage> onMessageReceived)
+        public async void Subscribe(String product, string requestString = "")
         {
             if (String.IsNullOrWhiteSpace(product))
             {
                 throw new ArgumentNullException(nameof(product));
             }
 
-            if (onMessageReceived == null)
-            {
-                throw new ArgumentNullException(nameof(onMessageReceived), "Message received callback must not be null.");
-            }
-
             var uri = new Uri("wss://ws-feed.exchange.coinbase.com");
             var webSocketClient = new WebSocket4Net.WebSocket("wss://ws-feed.gdax.com");
             
             var cancellationToken = new CancellationToken();
-            var requestString = String.Format(@"{{""type"": ""subscribe"",""channels"":[""heartbeat""], ""product_ids"" : [""ETH-EUR""]}}");
-            //var requestString = String.Format(@"{{""type"": ""subscribe"",""channels"":[""heartbeat""]}}");
+
+            if (requestString == "")
+                requestString = String.Format(@"{{""type"": ""subscribe"",""channels"":[""heartbeat""], ""product_ids"" : [""ETH-EUR""]}}");
+            
             var requestBytes = Encoding.UTF8.GetBytes(requestString);
-            arm = onMessageReceived;
 
             webSocketClient.DataReceived += WebSocketClient_DataReceived;
             webSocketClient.MessageReceived += WebSocketClient_MessageReceived;
@@ -265,12 +211,6 @@ namespace gdax_rsquared
 
             
 
-            /*webSocketClient.Send(@"{
-                ""type"": ""snapshot"",
-    ""product_ids"": [""BTC -EUR""],
-    ""bids"": [[""1"", ""2""]],
-    ""asks"": [[""2"", ""3""]]}");*/
-
             for(int i=0; i<5; i++)
             {
                 System.Threading.Thread.Sleep(1000);
@@ -294,6 +234,7 @@ namespace gdax_rsquared
                     return;
                 }
 
+                Console.WriteLine(jsonResponse.ToString());
 
                 var type = typeToken.Value<String>();
                 RealtimeMessage realtimeMessage = null;
@@ -325,8 +266,6 @@ namespace gdax_rsquared
                 }
 
                 this.OnOrderBookEventReceived(realtimeMessage);
-                if (arm != null)
-                    arm(realtimeMessage);
             }
             catch(Exception a)
             {
@@ -349,7 +288,7 @@ namespace gdax_rsquared
             Console.WriteLine(e.Exception.InnerException);
         }
 
-        volatile Action<RealtimeMessage> arm;
+        
         private void WebSocketClient_DataReceived(object sender, DataReceivedEventArgs e)
         {
             Console.WriteLine("MESSAGE RECEIVED!");
@@ -401,13 +340,80 @@ namespace gdax_rsquared
                 }
 
                 this.OnOrderBookEventReceived(realtimeMessage);
-                if (arm != null)
-                    arm(realtimeMessage);
             }
             catch(Exception a)
             {
                 Console.WriteLine("Whoops");
             }
+        }
+
+        public void StartFeed()
+        {
+            this.ResetStateWithFullOrderBook();
+        }
+        private List<BidAskOrder> _sells
+        {
+            get; set;
+        }
+        private List<BidAskOrder> _buys
+        {
+            get; set;
+        }
+
+        public List<BidAskOrder> Asks
+        {
+            get; set;
+        }
+        public List<BidAskOrder> Bids
+        {
+            get; set;
+        }
+
+        public Decimal Spread
+        {
+            get
+            {
+                lock (this._spreadLock)
+                {
+                    if (!this.Bids.Any() || !this.Asks.Any())
+                    {
+                        return 0;
+                    }
+
+                    var maxBuy = this.Bids.Select(x => x.Price).Max();
+                    var minSell = this.Asks.Select(x => x.Price).Min();
+
+                    return minSell - maxBuy;
+                }
+            }
+        }
+
+
+        List<BidAskOrder> convertBidsToBuys(OrderBook ob)
+        {
+            List<BidAskOrder> baoList = new List<BidAskOrder>();
+            for (int i = 0; i < ob.Bids.Count; i++)
+            {
+                BidAskOrder bao = new BidAskOrder();
+                bao.Id = ob.Bids[i][0];
+                bao.Price = Convert.ToDecimal(ob.Bids[i][1]);
+                bao.Size = Convert.ToDecimal(ob.Bids[i][2]);
+                baoList.Add(bao);
+            }
+            return baoList;
+        }
+        List<BidAskOrder> convertAsksToSells(OrderBook ob)
+        {
+            List<BidAskOrder> baoList = new List<BidAskOrder>();
+            for (int i = 0; i < ob.Asks.Count; i++)
+            {
+                BidAskOrder bao = new BidAskOrder();
+                bao.Id = ob.Asks[i][0];
+                bao.Price = Convert.ToDecimal(ob.Asks[i][1]);
+                bao.Size = Convert.ToDecimal(ob.Asks[i][2]);
+                baoList.Add(bao);
+            }
+            return baoList;
         }
     }
 
@@ -417,4 +423,6 @@ namespace gdax_rsquared
         public Decimal Size { get; set; }
         public String Id { get; set; }
     }
+
+
 }
