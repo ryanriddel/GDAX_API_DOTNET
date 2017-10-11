@@ -187,11 +187,15 @@ namespace gdax_rsquared
                 Console.WriteLine("Market data websocket failed to open");
         }
 
-        public async void AddSubscription(String product, string requestString = "")
+        public async Task AddSubscription(String product, string requestString = "")
         {
             if (String.IsNullOrWhiteSpace(product))
             {
                 throw new ArgumentNullException(nameof(product));
+            }
+            if(product.Length != 7 || product.Contains("-") == false)
+            {
+                throw new Exception("Malformed product: " + product + ".  It should have seven characters, one of which is a dash.");
             }
 
             if(productBook.ContainsKey(product) == false)
@@ -267,12 +271,12 @@ namespace gdax_rsquared
 
         private void WebSocketClient_Opened(object sender, EventArgs e)
         {
-            Console.WriteLine("Holy shit it opened!");
+            Console.WriteLine("Socket successfully opened!");
         }
 
         private void WebSocketClient_Error(object sender, SuperSocket.ClientEngine.ErrorEventArgs e)
         {
-            Console.WriteLine(e.Exception.InnerException);
+            Console.WriteLine("Websocket error: " + e.Exception.InnerException);
         }
 
         

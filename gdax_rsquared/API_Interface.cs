@@ -36,6 +36,8 @@ namespace gdax_rsquared
         GdaxClient client;
         RealtimeDataFeed mdataFeed = null;
 
+        public Dictionary<string, Book> productBook = new Dictionary<string, Book>();
+
         /// <summary>
         /// Initializes the API using the sandbox connection
         /// </summary>
@@ -45,6 +47,8 @@ namespace gdax_rsquared
             {
                 SetCredentials(sandboxAPIKey, sandboxAPIPassphrase, sandboxAPISecret, true);
                 mdataFeed = new RealtimeDataFeed(client);
+                mdataFeed.ConnectWebsocket();
+                productBook = mdataFeed.productBook;
             }
             catch(Exception e)
             {
@@ -132,21 +136,23 @@ namespace gdax_rsquared
 
         public async Task UnsubscribeTicker(string product)
         {
-            mdataFeed.AddSubscription(product,
+            await mdataFeed.AddSubscription(product,
                 String.Format(@"{{""type"": ""unsubscribe"",""channels"":[""ticker""], ""product_ids"" : ["" " + product + " \"]}}"));
         }
 
         public async Task UnsubscribeLevel2(string product)
         {
-            mdataFeed.AddSubscription(product,
+            await mdataFeed.AddSubscription(product,
                 String.Format(@"{{""type"": ""unsubscribe"",""channels"":[""level2""], ""product_ids"" : ["" " + product + " \"]}}"));
         }
 
         public async Task SubscribeToTicker(string product, Action<RealtimeMessage> callbackMethod = null)
         {
-            mdataFeed.AddSubscription(product,
+            await mdataFeed.AddSubscription(product,
                 String.Format(@"{{""type"": ""subscribe"",""channels"":[""ticker""], ""product_ids"" : ["" " + product + " \"]}}"));
         }
+
+        
 
         /// <summary>
         /// Subscribes to Bid and Ask Level 2 data for a specific product.
@@ -155,7 +161,7 @@ namespace gdax_rsquared
         /// <returns>A tuple with 'First' being the bids and 'Second' being the asks.</returns>
           public async Task SubscribeToLevel2(string product)
           {
-            mdataFeed.AddSubscription(product,
+            await mdataFeed.AddSubscription(product,
                 String.Format(@"{{""type"": ""subscribe"",""channels"":[""heartbeat""], ""product_ids"" : [""" + product + "\"\"]}}"));
 
           }
@@ -240,7 +246,7 @@ namespace gdax_rsquared
 
             RealtimeDataFeed mdataFeed = new RealtimeDataFeed(client);
             mdataFeed.OnMarketDataMessageReceived += MdataFeed_Updated;
-            mdataFeed.Subscribe("BTC-USD");
+            await SubscribeToLevel2(PRODUCT_BTCperUSD);
             Console.ReadKey();
 
             
@@ -249,23 +255,12 @@ namespace gdax_rsquared
 
         public void onMsgReceived(RealtimeMessage msg)
         {
-            Console.WriteLine("MktData: " + msg.Type + "   " + msg.Sequence + "    " + msg.Price);
         }
         private void MdataFeed_Updated(RealtimeMessage msg, List<BidAskOrder> bids, List<BidAskOrder> asks)
         {
             
         }
-
-        private class NoopHandler : HttpMessageHandler
-        {
-            protected override System.Threading.Tasks.Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-            {
-                return System.Threading.Tasks.Task.FromResult(new HttpResponseMessage
-                {
-                    RequestMessage = request
-                });
-            }
-        }
+        
         
 
 
