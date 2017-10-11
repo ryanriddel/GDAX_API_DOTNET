@@ -23,93 +23,82 @@ namespace gdax_rsquared
         private readonly Object _spreadLock = new Object();
 
         GdaxClient gdaxClient;
-
-        public event EventHandler Updated;
+        
+        
         public event MarketDataMessageHandler OnMarketDataMessageReceived;
+        public event MarketDataMessageHandler OnLimitOrderOpened;
+        public event MarketDataMessageHandler OnOrderCancelled;
+        public event MarketDataMessageHandler OnOrderFilled;
+        public event MarketDataMessageHandler OnOrderModified;
+        public event MarketDataMessageHandler OnOrderMatched;
 
+        private WebSocket4Net.WebSocket webSocketClient;
+
+        public Dictionary<string, Book> productBook = new Dictionary<string, Book>();
+        private Dictionary<string, Book> _productBook = new Dictionary<string, Book>();
 
         public RealtimeDataFeed(GdaxClient client) 
         {
             gdaxClient = client;
-            this._sells = new List<BidAskOrder>();
-            this._buys = new List<BidAskOrder>();
 
-            this.Asks = new List<BidAskOrder>();
-            this.Bids = new List<BidAskOrder>();
+            ConnectWebsocket();
         }
 
         
-
-        private async void ResetStateWithFullOrderBook()
-        {
-
-            OrderBook ob = await gdaxClient.GetOrderBook(Product, Gdax.Models.OrderBookLevel.Level3);
-            
-            lock (this._spreadLock)
-            {
-                lock (this._askLock)
-                {
-                    lock (this._bidLock) 
-                    {
-                        this._buys = convertBidsToBuys(ob);
-                        this._sells = convertAsksToSells(ob);
-
-                        this.Bids = this._buys.ToList();
-                        this.Asks = this._sells.ToList();
-                    }
-                }
-            }
-
-            this.OnUpdated();
-            
-        }
-
-        private void OnUpdated()
-        {
-            this.Updated?.Invoke(this, new EventArgs());
-        }
-        
-
         private void OnOrderBookEventReceived(RealtimeMessage message)
         {
             if (message is RealtimeReceived)
             {
                 var receivedMessage = message as RealtimeReceived;
                 this.OnReceived(receivedMessage);
+
+                if (OnMarketDataMessageReceived != null)
+                    OnMarketDataMessageReceived.Invoke(receivedMessage, productBook[receivedMessage.ProductID].Bids, productBook[receivedMessage.ProductID].Asks);
             }
 
             else if (message is RealtimeOpen)
             {
                 //limit order has been opened
+
+            if(OnLimitOrderOpened != null)
+                    OnLimitOrderOpened.Invoke(message, productBook[message.ProductID].Bids, productBook[message.ProductID].Asks);
             }
 
             else if (message is RealtimeDone)
             {
                 
                 var doneMessage = message as RealtimeDone;
-                if(doneMessage.Reason == "filled")
-                {
+                this.OnDone(doneMessage);
 
+                if (doneMessage.Reason == "filled")
+                {
+                    if(OnOrderFilled != null)
+                        OnOrderFilled.Invoke(message, productBook[message.ProductID].Bids, productBook[message.ProductID].Asks);
                 }
                 else
                 {
                     //order has been cancelled
+                    if(OnOrderCancelled != null)
+                    OnOrderCancelled.Invoke(message, productBook[message.ProductID].Bids, productBook[message.ProductID].Asks);
                 }
-                this.OnDone(doneMessage);
+                
             }
 
             else if (message is RealtimeMatch)
             {
                 //new trade happened
+                if(OnOrderMatched != null)
+                    OnOrderMatched.Invoke(message, productBook[message.ProductID].Bids, productBook[message.ProductID].Asks);
             }
 
             else if (message is RealtimeChange)
             {
                 //an order has been modified
+                if(OnOrderModified != null)
+                    OnOrderModified.Invoke(message, productBook[message.ProductID].Bids, productBook[message.ProductID].Asks);
                 return;
             }
-
-            this.OnUpdated();
+            
         }
 
         private void OnReceived(RealtimeReceived receivedMessage)
@@ -128,8 +117,8 @@ namespace gdax_rsquared
                 {
                     lock (this._bidLock)
                     {
-                        this._buys.Add(order);
-                        this.Bids = this._buys.ToList();
+                        _productBook[receivedMessage.ProductID].Bids.Add(order);
+                        productBook[receivedMessage.ProductID].Bids = _productBook[receivedMessage.ProductID].Bids.ToList();
                     }
                 }
 
@@ -137,50 +126,46 @@ namespace gdax_rsquared
                 {
                     lock (this._askLock)
                     {
-                        this._sells.Add(order);
-                        this.Asks = this._sells.ToList();
+                        _productBook[receivedMessage.ProductID].Asks.Add(order);
+                        productBook[receivedMessage.ProductID].Asks = _productBook[receivedMessage.ProductID].Asks.ToList();
                     }
                 }
             }
+
+
+           
         }
 
         private void OnDone(RealtimeDone message)
         {
+            
             lock (this._spreadLock)
             {
                 lock (this._askLock)
                 {
                     lock (this._bidLock)
                     {
-                        this._buys.RemoveAll(b => b.Id == message.OrderId);
-                        this._sells.RemoveAll(a => a.Id == message.OrderId);
+                        _productBook[message.ProductID].Bids.RemoveAll(b => b.Id == message.OrderId);
+                        _productBook[message.ProductID].Asks.RemoveAll(a => a.Id == message.OrderId);
 
-                        this.Bids = this._buys.ToList();
-                        this.Asks = this._sells.ToList();
+                        productBook[message.ProductID].Bids = _productBook[message.ProductID].Bids.ToList();
+                        productBook[message.ProductID].Asks = _productBook[message.ProductID].Asks.ToList();
                     }
                 }
             }
+            
         }
 
-        public async void Subscribe(String product, string requestString = "")
+        public async void ConnectWebsocket()
         {
-            if (String.IsNullOrWhiteSpace(product))
-            {
-                throw new ArgumentNullException(nameof(product));
-            }
+            if (webSocketClient.State == WebSocket4Net.WebSocketState.Open)
+                return;
 
-            var uri = new Uri("wss://ws-feed.exchange.coinbase.com");
-            var webSocketClient = new WebSocket4Net.WebSocket("wss://ws-feed.gdax.com");
+            webSocketClient = new WebSocket4Net.WebSocket("wss://ws-feed.gdax.com");
             
-            var cancellationToken = new CancellationToken();
-
-            if (requestString == "")
-                requestString = String.Format(@"{{""type"": ""subscribe"",""channels"":[""heartbeat""], ""product_ids"" : [""ETH-EUR""]}}");
-            
-            var requestBytes = Encoding.UTF8.GetBytes(requestString);
-
-            webSocketClient.DataReceived += WebSocketClient_DataReceived;
             webSocketClient.MessageReceived += WebSocketClient_MessageReceived;
+
+
             webSocketClient.EnableAutoSendPing = true;
             webSocketClient.Error += WebSocketClient_Error;
             webSocketClient.Opened += WebSocketClient_Opened;
@@ -188,39 +173,43 @@ namespace gdax_rsquared
             webSocketClient.ReceiveBufferSize = 1024 * 1024 * 5;
             webSocketClient.EnableAutoSendPing = true;
             webSocketClient.NoDelay = true;
-            
+
             webSocketClient.Open();
 
-            while (webSocketClient.State == WebSocket4Net.WebSocketState.Connecting)
+            for (int i = 0; i < 5 && (webSocketClient.State == WebSocket4Net.WebSocketState.Connecting); i++)
             {
-                Console.WriteLine("Waiting...");
                 System.Threading.Thread.Sleep(100);
             }
-            Console.WriteLine("Connected!");
 
-            Console.WriteLine("Status: " + webSocketClient.State.ToString());
-                var subscribeRequest = new ArraySegment<Byte>(requestBytes);
-                List<ArraySegment<Byte>> blist = new List<ArraySegment<byte>>();
-                blist.Add(subscribeRequest);
-            //webSocketClient.Send(requestString);
+            if (webSocketClient.State == WebSocket4Net.WebSocketState.Open)
+                Console.WriteLine("Market data websocket connected!");
+            else
+                Console.WriteLine("Market data websocket failed to open");
+        }
 
-            requestString = String.Format(@"{{""type"": ""subscribe"",""product_ids"":[""BTC-USD""], ""channels"":[""full""]}}");
-            webSocketClient.Send(requestString);
-
-            Console.WriteLine("Handshaked: " + webSocketClient.Handshaked.ToString() + ", " + webSocketClient.State.ToString());
-
-            
-
-            for(int i=0; i<5; i++)
+        public async void AddSubscription(String product, string requestString = "")
+        {
+            if (String.IsNullOrWhiteSpace(product))
             {
-                System.Threading.Thread.Sleep(1000);
-                Console.WriteLine(webSocketClient.State.ToString());
+                throw new ArgumentNullException(nameof(product));
             }
+
+            if(productBook.ContainsKey(product) == false)
+                productBook[product] = new Book(product);
+            
+            
+            Console.WriteLine("Websocket request: " + requestString);
+            if (requestString == "")
+                requestString = String.Format(@"{{""type"": ""subscribe"",""channels"":[""heartbeat""], ""product_ids"" : [""ETH-EUR""]}}");
+            
+            
+            //requestString = String.Format(@"{{""type"": ""subscribe"",""product_ids"":[""BTC-USD""], ""channels"":[""full""]}}");
+            webSocketClient.Send(requestString);
+            
 }
 
         private void WebSocketClient_MessageReceived(object sender, MessageReceivedEventArgs e)
         {
-            Console.WriteLine("Message received: " + e.Message.ToString());
             try
             {
                 var jsonResponse = e.Message;
@@ -233,8 +222,6 @@ namespace gdax_rsquared
                 {
                     return;
                 }
-
-                Console.WriteLine(jsonResponse.ToString());
 
                 var type = typeToken.Value<String>();
                 RealtimeMessage realtimeMessage = null;
@@ -289,106 +276,6 @@ namespace gdax_rsquared
         }
 
         
-        private void WebSocketClient_DataReceived(object sender, DataReceivedEventArgs e)
-        {
-            Console.WriteLine("MESSAGE RECEIVED!");
-            try
-            {
-                var jsonResponse = Encoding.UTF8.GetString(e.Data, 0, e.Data.Length);
-
-                if (jsonResponse == null)
-                    return;
-
-                var jToken = JToken.Parse(jsonResponse);
-
-                if (jToken == null)
-                    return;
-
-                var typeToken = jToken["type"];
-                if (typeToken == null || jToken["sequence"] == null || jToken["price"] == null)
-                {
-                    return;
-                }
-
-                var type = typeToken.Value<String>();
-                RealtimeMessage realtimeMessage = null;
-
-                switch (type)
-                {
-                    case "received":
-                        realtimeMessage = new RealtimeReceived(jToken);
-                        break;
-                    case "open":
-                        realtimeMessage = new RealtimeOpen(jToken);
-                        break;
-                    case "done":
-                        realtimeMessage = new RealtimeDone(jToken);
-                        break;
-                    case "match":
-                        realtimeMessage = new RealtimeMatch(jToken);
-                        break;
-                    case "change":
-                        realtimeMessage = new RealtimeChange(jToken);
-                        break;
-                    default:
-                        break;
-                }
-
-                if (realtimeMessage == null)
-                {
-                    return;
-                }
-
-                this.OnOrderBookEventReceived(realtimeMessage);
-            }
-            catch(Exception a)
-            {
-                Console.WriteLine("Whoops");
-            }
-        }
-
-        public void StartFeed()
-        {
-            this.ResetStateWithFullOrderBook();
-        }
-        private List<BidAskOrder> _sells
-        {
-            get; set;
-        }
-        private List<BidAskOrder> _buys
-        {
-            get; set;
-        }
-
-        public List<BidAskOrder> Asks
-        {
-            get; set;
-        }
-        public List<BidAskOrder> Bids
-        {
-            get; set;
-        }
-
-        public Decimal Spread
-        {
-            get
-            {
-                lock (this._spreadLock)
-                {
-                    if (!this.Bids.Any() || !this.Asks.Any())
-                    {
-                        return 0;
-                    }
-
-                    var maxBuy = this.Bids.Select(x => x.Price).Max();
-                    var minSell = this.Asks.Select(x => x.Price).Min();
-
-                    return minSell - maxBuy;
-                }
-            }
-        }
-
-
         List<BidAskOrder> convertBidsToBuys(OrderBook ob)
         {
             List<BidAskOrder> baoList = new List<BidAskOrder>();
@@ -422,6 +309,29 @@ namespace gdax_rsquared
         public Decimal Price { get; set; }
         public Decimal Size { get; set; }
         public String Id { get; set; }
+    }
+
+    public class Book
+    {
+        public string product;
+        public List<BidAskOrder> Bids;
+        public List<BidAskOrder> Asks;
+
+        public Book(string _product)
+        {
+            product = _product;
+
+            Bids = new List<BidAskOrder>();
+            Asks = new List<BidAskOrder>();
+        }
+        public Book(string _product, List<BidAskOrder> bids, List<BidAskOrder> asks)
+        {
+            product = _product;
+            Bids = bids;
+            Asks = asks;
+            Bids = new List<BidAskOrder>();
+            Asks = new List<BidAskOrder>();
+        }
     }
 
 

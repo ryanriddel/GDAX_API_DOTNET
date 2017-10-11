@@ -13,11 +13,13 @@ namespace gdax_rsquared
             this.Type = jToken["type"].Value<String>();
             this.Sequence = jToken["sequence"].Value<Int64>();
             this.Price = jToken["price"].Value<Decimal>();
+            this.ProductID = jToken["product_id"].Value<String>();
         }
 
         public String Type { get; set; }
         public Int64 Sequence { get; set; }
         public Decimal Price { get; set; }
+        public String ProductID { get; set; }
     }
 
     public class RealtimeReceived : RealtimeMessage
@@ -27,6 +29,7 @@ namespace gdax_rsquared
             this.OrderId = jToken["order_id"].Value<String>();
             this.Size = jToken["size"].Value<Decimal>();
             this.Side = jToken["side"].Value<String>();
+            this.ProductID = jToken["product_id"].Value<String>();
         }
 
         public String OrderId { get; set; }
@@ -41,6 +44,7 @@ namespace gdax_rsquared
             this.OrderId = jToken["order_id"].Value<String>();
             this.RemainingSize = jToken["remaining_size"].Value<Decimal>();
             this.Side = jToken["side"].Value<String>();
+            this.ProductID = jToken["product_id"].Value<String>();
         }
 
         public String OrderId { get; set; }
@@ -56,6 +60,7 @@ namespace gdax_rsquared
             this.RemainingSize = jToken["remaining_size"].Value<Decimal>();
             this.Side = jToken["side"].Value<String>();
             this.Reason = jToken["reason"].Value<String>();
+            this.ProductID = jToken["product_id"].Value<String>();
         }
 
         public String OrderId { get; set; }
@@ -74,6 +79,7 @@ namespace gdax_rsquared
             this.Time = jToken["time"].Value<DateTime>();
             this.Price = jToken["price"].Value<Decimal>();
             this.Side = jToken["side"].Value<String>();
+            this.ProductID = jToken["product_id"].Value<String>();
         }
 
         public Decimal TradeId { get; set; }
@@ -93,6 +99,7 @@ namespace gdax_rsquared
             this.NewSize = jToken["new_size"].Value<Decimal>();
             this.OldSize = jToken["old_size"].Value<Decimal>();
             this.Side = jToken["side"].Value<String>();
+            this.ProductID = jToken["product_id"].Value<String>();
         }
 
         public String OrderId { get; set; }

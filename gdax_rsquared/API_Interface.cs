@@ -16,11 +16,6 @@ using System.Net.WebSockets;
 
 namespace gdax_rsquared
 {
-    public enum Side
-    {
-        Buy,
-        Sell
-    }
     class API_Interface
     {
         public string PRODUCT_BTCperUSD = "BTC-USD";
@@ -39,20 +34,41 @@ namespace gdax_rsquared
 
         
         GdaxClient client;
-        RealtimeDataFeed mdataFeed;
+        RealtimeDataFeed mdataFeed = null;
 
+        /// <summary>
+        /// Initializes the API using the sandbox connection
+        /// </summary>
         public API_Interface()
         {
-            var credentials = new GdaxCredentials(sandboxAPIKey, sandboxAPIPassphrase, sandboxAPISecret);
-            client = new GdaxClient(credentials)
+            try
             {
-                UseSandbox = true
-            };
+                SetCredentials(sandboxAPIKey, sandboxAPIPassphrase, sandboxAPISecret, true);
+                mdataFeed = new RealtimeDataFeed(client);
+            }
+            catch(Exception e)
+            {
+                throw e;
+            }
         }
 
+        /// <summary>
+        /// Initializes the API using user-defined login credentials, which will connect to the non-sandbox gdax
+        /// </summary>
+        /// <param name="apiKey"></param>
+        /// <param name="apiSecret"></param>
+        /// <param name="apiPassphrase"></param>
         public API_Interface(string apiKey, string apiSecret, string apiPassphrase)
         {
-            SetCredentials(apiKey, apiPassphrase, apiSecret);
+            try
+            {
+                SetCredentials(apiKey, apiPassphrase, apiSecret);
+                mdataFeed = new RealtimeDataFeed(client);
+            }
+            catch(Exception e)
+            {
+                throw e;
+            }
         }
 
         public void SetCredentials(string apiKey, string apiSecret, string apiPassphrase, bool useSandbox = false)
@@ -67,43 +83,69 @@ namespace gdax_rsquared
             Console.WriteLine("GDAX authentication successful.");
         }
 
-        public Order SubmitMarketOrder(string product, Side side, decimal quantity)
+        public async Task<Order> SubmitMarketOrder(string product, Side side, decimal quantity)
         {
+            Order order = await client.PlaceMarketOrder(side, product, quantity);
+            return order;
+        }
+
+        public async Task<Order> SubmitLimitOrder(string product, Side side, decimal quantity, decimal price)
+        {
+           Order limitOrder = await client.PlaceLimitOrder(side, product, quantity, price);
+            return limitOrder;
+        }
+
+        public async Task<Order> SubmitStopOrder(string product, Side side, decimal quantity, decimal price)
+        {
+            Order stopOrder = await client.PlaceStopOrder(side, product, price, quantity);
+            return stopOrder;
+        }
+        public async Task CancelLimitOrder(Guid orderID)
+        {
+            await client.CancelOrder(orderID.ToString());
+        }
+
+        public async Task<List<Guid>> CancelAllOrders()
+        {
+            IList<Guid> lg = await client.CancelAllOrders();
+            return lg.ToList<Guid>();
+        }
+        
+        public async Task<OrderBook> GetLevel2Book(string product)
+        {
+            OrderBook ob = await client.GetOrderBook(product, OrderBookLevel.Level2);
+            return ob;
 
         }
 
-        public Order SubmitLimitOrder(string product, Side side, decimal quantity, decimal price)
+        public async Task<List<Account>> GetAccounts()
         {
-
+            IList<Account> al = await client.GetAccounts();
+            return al.ToList<Account>();
         }
 
-        public Order SubmitStopOrder()
+        public async Task<List<Ledger>> GetAccountHistory(Guid accountID)
         {
-
-        }
-        public Order CancelLimitOrder()
-        {
-
+            PagedResults<Ledger, int?> pr = await client.GetAccountHistory(accountID);
+            return pr.Results.ToList<Ledger>();
         }
 
-        public List<Order> GetAllOrders()
+        public async Task UnsubscribeTicker(string product)
         {
-
+            mdataFeed.AddSubscription(product,
+                String.Format(@"{{""type"": ""unsubscribe"",""channels"":[""ticker""], ""product_ids"" : ["" " + product + " \"]}}"));
         }
 
-        public Order GetOrder(ulong orderID)
+        public async Task UnsubscribeLevel2(string product)
         {
-
+            mdataFeed.AddSubscription(product,
+                String.Format(@"{{""type"": ""unsubscribe"",""channels"":[""level2""], ""product_ids"" : ["" " + product + " \"]}}"));
         }
 
-        public Ledger GetPositions()
+        public async Task SubscribeToTicker(string product, Action<RealtimeMessage> callbackMethod = null)
         {
-
-        }
-
-        public void SubscribeToTicker(string product, Action<RealtimeMessage> callbackMethod = null)
-        {
-
+            mdataFeed.AddSubscription(product,
+                String.Format(@"{{""type"": ""subscribe"",""channels"":[""ticker""], ""product_ids"" : ["" " + product + " \"]}}"));
         }
 
         /// <summary>
@@ -111,10 +153,12 @@ namespace gdax_rsquared
         /// </summary>
         /// <param name="product"></param>
         /// <returns>A tuple with 'First' being the bids and 'Second' being the asks.</returns>
-        Tuple<List<BidAskOrder>,List<BidAskOrder>> SubscribeToLevel2(string product)
-        {
+          public async Task SubscribeToLevel2(string product)
+          {
+            mdataFeed.AddSubscription(product,
+                String.Format(@"{{""type"": ""subscribe"",""channels"":[""heartbeat""], ""product_ids"" : [""" + product + "\"\"]}}"));
 
-        }
+          }
         public async Task Run()
         {
 
