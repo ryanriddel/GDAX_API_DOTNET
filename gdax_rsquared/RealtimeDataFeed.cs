@@ -13,6 +13,7 @@ using WebSocket4Net;
 namespace gdax_rsquared
 {
     public delegate void MarketDataMessageHandler(RealtimeMessage msg, List<BidAskOrder> bids, List<BidAskOrder> asks);
+    public delegate void TickerMessageReceivedHandler(string time, string productID, string price, string side, string lastSize, string best_bid, string best_ask);
 
     public class RealtimeDataFeed 
     {
@@ -31,11 +32,11 @@ namespace gdax_rsquared
         public event MarketDataMessageHandler OnOrderFilled;
         public event MarketDataMessageHandler OnOrderModified;
         public event MarketDataMessageHandler OnOrderMatched;
-
+        public event TickerMessageReceivedHandler OnTicker;
         private WebSocket4Net.WebSocket webSocketClient;
 
         public Dictionary<string, Book> productBook = new Dictionary<string, Book>();
-        private Dictionary<string, Book> _productBook = new Dictionary<string, Book>();
+        public Dictionary<string, Book> _productBook = new Dictionary<string, Book>();
 
         public RealtimeDataFeed(GdaxClient client) 
         {
@@ -47,6 +48,7 @@ namespace gdax_rsquared
         
         private void OnOrderBookEventReceived(RealtimeMessage message)
         {
+            
             if (message is RealtimeReceived)
             {
                 var receivedMessage = message as RealtimeReceived;
@@ -158,8 +160,9 @@ namespace gdax_rsquared
 
         public async void ConnectWebsocket()
         {
-            if (webSocketClient.State == WebSocket4Net.WebSocketState.Open)
-                return;
+            if(webSocketClient != null)
+                if (webSocketClient.State == WebSocket4Net.WebSocketState.Open)
+                     return;
 
             webSocketClient = new WebSocket4Net.WebSocket("wss://ws-feed.gdax.com");
             
@@ -187,7 +190,7 @@ namespace gdax_rsquared
                 Console.WriteLine("Market data websocket failed to open");
         }
 
-        public async Task AddSubscription(String product, string requestString = "")
+        public async Task<Book> AddSubscription(String product, string requestString = "")
         {
             if (String.IsNullOrWhiteSpace(product))
             {
@@ -198,18 +201,20 @@ namespace gdax_rsquared
                 throw new Exception("Malformed product: " + product + ".  It should have seven characters, one of which is a dash.");
             }
 
+            Console.WriteLine(requestString);
+
             if(productBook.ContainsKey(product) == false)
                 productBook[product] = new Book(product);
-            
-            
-            Console.WriteLine("Websocket request: " + requestString);
+            if (_productBook.ContainsKey(product) == false)
+                _productBook[product] = new Book(product);
+
             if (requestString == "")
                 requestString = String.Format(@"{{""type"": ""subscribe"",""channels"":[""heartbeat""], ""product_ids"" : [""ETH-EUR""]}}");
             
             
             //requestString = String.Format(@"{{""type"": ""subscribe"",""product_ids"":[""BTC-USD""], ""channels"":[""full""]}}");
             webSocketClient.Send(requestString);
-            
+            return productBook[product];
 }
 
         private void WebSocketClient_MessageReceived(object sender, MessageReceivedEventArgs e)
@@ -229,7 +234,6 @@ namespace gdax_rsquared
 
                 var type = typeToken.Value<String>();
                 RealtimeMessage realtimeMessage = null;
-
                 switch (type)
                 {
                     case "received":
@@ -247,10 +251,16 @@ namespace gdax_rsquared
                     case "change":
                         realtimeMessage = new RealtimeChange(jToken);
                         break;
+                    case "ticker":
+                        if (OnTicker != null)
+                            OnTicker.Invoke(jToken["time"].Value<String>(), jToken["product_id"].Value<String>(), jToken["price"].Value<String>(), 
+                                jToken["side"].Value<String>(), jToken["last_size"].Value<String>(), jToken["best_bid"].Value<String>(), jToken["best_ask"].Value<String>());
+                        
+                        break;
                     default:
                         break;
                 }
-
+                
                 if (realtimeMessage == null)
                 {
                     return;
@@ -260,7 +270,7 @@ namespace gdax_rsquared
             }
             catch(Exception a)
             {
-                Console.WriteLine("Bad msg");
+                Console.WriteLine("Message not captured: " + e.Message);
             }
         }
 
@@ -335,6 +345,17 @@ namespace gdax_rsquared
             Asks = asks;
             Bids = new List<BidAskOrder>();
             Asks = new List<BidAskOrder>();
+        }
+
+        public override string ToString()
+        {
+            string val = product + "\n" + "Bids: ";
+            for (int i = 0; i < Bids.Count; i++)
+                val += Bids[i].Price + " : " + Bids[i].Size + "   ";
+            val += "\nAsks: ";
+            for (int i = 0; i < Asks.Count; i++)
+                val += Asks[i].Price + " : " + Asks[i].Size + "   ";
+            return val;
         }
     }
 

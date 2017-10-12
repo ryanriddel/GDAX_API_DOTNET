@@ -23,9 +23,10 @@ namespace gdax_rsquared
         {
             API_Interface newtest = new API_Interface();
 
-            Task t = newtest.Run();
-            t.Wait();
+            newtest.RunTest().Wait();
+
             Console.WriteLine("Its done.");
+            Console.ReadKey();
         }
     }
 }

@@ -31,8 +31,9 @@ namespace gdax_rsquared
         private string api_passphrase = sandboxAPIPassphrase;
         private string api_key = sandboxAPIKey;
         private string application_name = sandboxApplicationName;
-
         
+
+
         GdaxClient client;
         RealtimeDataFeed mdataFeed = null;
 
@@ -45,16 +46,17 @@ namespace gdax_rsquared
         {
             try
             {
-                SetCredentials(sandboxAPIKey, sandboxAPIPassphrase, sandboxAPISecret, true);
+                SetCredentials(sandboxAPIKey, sandboxAPISecret, api_passphrase, true);
                 mdataFeed = new RealtimeDataFeed(client);
                 mdataFeed.ConnectWebsocket();
                 productBook = mdataFeed.productBook;
             }
-            catch(Exception e)
+            catch (Exception e)
             {
                 throw e;
             }
         }
+
 
         /// <summary>
         /// Initializes the API using user-defined login credentials, which will connect to the non-sandbox gdax
@@ -66,14 +68,144 @@ namespace gdax_rsquared
         {
             try
             {
-                SetCredentials(apiKey, apiPassphrase, apiSecret);
+                SetCredentials(apiKey, apiSecret, apiPassphrase);
                 mdataFeed = new RealtimeDataFeed(client);
+                mdataFeed.ConnectWebsocket();
+                productBook = mdataFeed.productBook;
             }
-            catch(Exception e)
+            catch (Exception e)
             {
                 throw e;
             }
         }
+
+
+        public GdaxClient GetClient()
+        {
+            return client;
+        }
+
+        
+
+        public async Task RunTest()
+        {
+
+            Console.WriteLine("Time Test:");
+            //var time = await client.GetServerTime();
+            //Console.WriteLine(time.Epoch.ToString());
+
+
+            Console.WriteLine("Accounts Test:   ");
+            List<Account> accounts = await GetAccounts();
+            foreach (Account acct in accounts)
+                Console.WriteLine("Profile ID: " + acct.ProfileId + ", Balance: " + acct.Balance + ",  Available: " + acct.Available);
+            Console.Write("\n\n");
+
+            Console.ReadKey();
+
+
+
+            Console.WriteLine("Market Order Tests: ");
+            Order order = await SubmitMarketOrder("BTC-USD", Side.Buy,  0.314m);
+            Console.Write("Market order placed:   ");
+            Console.WriteLine("Status: " + order.Status + ", Fill Quantity: " + order.FilledSize.ToString() + ", Order ID: " + order.OrderId.ToString());
+            Console.WriteLine("\n");
+
+            Console.ReadKey();
+
+            Order limitOrder = await SubmitLimitOrder("BTC-USD", Side.Buy, new decimal(0.2718), 500m);
+            Console.Write("Limit order placed: ");
+            Console.WriteLine("Status: " + limitOrder.Status + ", Rem Size: " + (limitOrder.Size - limitOrder.FilledSize).ToString());
+            Console.WriteLine("\n");
+
+            Console.ReadKey();
+
+            Console.WriteLine("Cancel limit order test:");
+            await CancelLimitOrder(limitOrder.OrderId);
+            Console.WriteLine("Cancelled order id=(" + limitOrder.OrderId.ToString() + ").  Current status of limit order is: " + limitOrder.Status);
+            Console.WriteLine("\n");
+
+            Console.ReadKey();
+
+
+            Console.WriteLine("Getting BTC-USD level 2 order book...");
+            OrderBook ordBook = await GetLevel2Book("BTC-USD");
+            
+            Console.Write("Bids:   ");
+            for (int i = 0; i < ordBook.Bids.Count; i++)
+                for(int j=0; j<ordBook.Bids[i].Length; j++)
+                Console.Write(ordBook.Bids[i][j] + "     ");
+            Console.WriteLine("\n\n");
+            
+            Console.Write("Asks:   ");
+            for (int i = 0; i < ordBook.Asks.Count; i++)
+                for (int j = 0; j < ordBook.Asks[i].Length; j++)
+                    Console.Write(ordBook.Asks[i][j] + "     ");
+            Console.WriteLine("\n\n");
+
+            Console.ReadKey();
+
+
+
+
+            Console.WriteLine("Getting account history...");
+            List<Ledger> hist = await GetAccountHistory(accounts[0].Id);
+            foreach (Ledger led in hist)
+            {
+                Console.WriteLine("Ledger ID: " + led.Id + ", Order ID: " + led.Details.OrderId + "Product ID: " + led.Details.ProductId + ", Transfer Type: " + led.Details.TransferType);
+            }
+
+
+            Console.WriteLine("Live market data test:");
+            Console.Write("Press any key to continue....");
+            Console.ReadKey();
+
+            Console.WriteLine("Level 2 subscription test:");
+
+            Book book = await SubscribeToLevel2(PRODUCT_BTCperUSD);
+
+            Console.WriteLine("Press enter to continue");
+            Console.ReadKey();
+
+            await UnsubscribeLevel2(PRODUCT_BTCperUSD);
+            Console.WriteLine("Level 2 unsubscribed");
+            Console.ReadKey();
+
+            Console.WriteLine("Subscribing to ticker...");
+            Thread.Sleep(1000);
+
+            await SubscribeToTicker("BTC-USD", new TickerMessageReceivedHandler(delegate (string eventtime, string productID, string price, string side,
+                string lastSize, string bestBid, string bestAsk)
+            {
+                Console.WriteLine("Time: " + eventtime + ", " + "Product ID: " + productID + ", Price: " + price + ", Side: " + side);
+                Console.WriteLine("Last size: " + lastSize + ", Best Bid: " + bestBid + ", " + bestAsk);
+                Console.WriteLine();
+            }));
+
+
+            Console.WriteLine("Press enter");
+            Console.ReadKey();
+
+            await UnsubscribeTicker("BTC-USD");
+
+            Thread.Sleep(1000);
+            Console.WriteLine("Unsubscribed.\n");
+
+            
+
+            Console.WriteLine("Test the 'book' structure");
+            Console.WriteLine(mdataFeed._productBook["BTC-USD"].ToString());
+            Console.WriteLine("\nWaiting....");
+            Thread.Sleep(1000);
+            Console.WriteLine(mdataFeed._productBook["BTC-USD"].ToString());
+            Console.WriteLine("\nWaiting....");
+            Thread.Sleep(1000);
+            Console.WriteLine(mdataFeed._productBook["BTC-USD"].ToString());
+
+            Console.WriteLine("\n\n\nTest Complete");
+            Console.ReadKey();
+        }
+        
 
         public void SetCredentials(string apiKey, string apiSecret, string apiPassphrase, bool useSandbox = false)
         {
@@ -137,121 +269,44 @@ namespace gdax_rsquared
         public async Task UnsubscribeTicker(string product)
         {
             await mdataFeed.AddSubscription(product,
-                String.Format(@"{{""type"": ""unsubscribe"",""channels"":[""ticker""], ""product_ids"" : ["" " + product + " \"]}}"));
+                String.Format(@"{{""type"": ""unsubscribe"",""channels"":[""ticker""], ""product_ids"" : [""" + product + "\"]}}"));
         }
 
         public async Task UnsubscribeLevel2(string product)
         {
             await mdataFeed.AddSubscription(product,
-                String.Format(@"{{""type"": ""unsubscribe"",""channels"":[""level2""], ""product_ids"" : ["" " + product + " \"]}}"));
+                String.Format(@"{{""type"": ""unsubscribe"",""channels"":[""level2""], ""product_ids"" : [""" + product + "\"]}}"));
         }
 
-        public async Task SubscribeToTicker(string product, Action<RealtimeMessage> callbackMethod = null)
+        public async Task SubscribeToTicker(string product, TickerMessageReceivedHandler callbackMethod = null)
         {
+
             await mdataFeed.AddSubscription(product,
-                String.Format(@"{{""type"": ""subscribe"",""channels"":[""ticker""], ""product_ids"" : ["" " + product + " \"]}}"));
+                String.Format(@"{{""type"": ""subscribe"",""channels"":[""ticker""], ""product_ids"" : [""" + product + "\"]}}"));
+
+            if (callbackMethod != null)
+                mdataFeed.OnTicker += callbackMethod;
+
+            return;
         }
-
         
-
         /// <summary>
         /// Subscribes to Bid and Ask Level 2 data for a specific product.
         /// </summary>
         /// <param name="product"></param>
+        /// <param name="callbackMethod">This is an optional callback method that gets called when a message is received.  Remember, you can also subscribe to the market data feed's events.</param>
         /// <returns>A tuple with 'First' being the bids and 'Second' being the asks.</returns>
-          public async Task SubscribeToLevel2(string product)
-          {
-            await mdataFeed.AddSubscription(product,
-                String.Format(@"{{""type"": ""subscribe"",""channels"":[""heartbeat""], ""product_ids"" : [""" + product + "\"\"]}}"));
-
-          }
-        public async Task Run()
+        public async Task<Book> SubscribeToLevel2(string product, MarketDataMessageHandler callbackMethod = null)
         {
+        Book b = await mdataFeed.AddSubscription(product,
+            String.Format(@"{{""type"": ""subscribe"",""channels"":[""level2""], ""product_ids"" : [""" + product + "\"]}}"));
 
-            Console.WriteLine("Press any key to begin the test.");
-            
+        if (callbackMethod != null)
+            mdataFeed.OnMarketDataMessageReceived += callbackMethod;
+        return b;
 
-            ISystemClock clk = new Gdax.Internal.SystemClock();
-            
-            /*
-            IList<Account> accounts;
-
-            try
-            {
-
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine("Error: " + e.ToString());
-            }
-
-            accounts = await client.GetAccounts();
-
-            Console.WriteLine("Beginning tests...");
-            Console.Write("Accounts Test:   ");
-            foreach (Account acct in accounts)
-                Console.Write("Profile ID: " + acct.ProfileId + ", Balance: " + acct.Balance + "       ");
-
-            Console.WriteLine("Time Test:");
-
-
-            var time = await client.GetServerTime();
-
-            Console.WriteLine(time.Epoch.ToString());
-            Console.WriteLine("Market Order Tests: ");
-            try
-            {
-
-                Order order = await client.PlaceMarketOrder(Side.Buy, "BTC-USD", 0.314m);
-                Console.WriteLine();
-                Console.Write("Market order placed:");
-                Console.WriteLine("Status: " + order.Status + ", Fill Quantity: " + order.FilledSize.ToString() + ", Order ID: " + order.OrderId.ToString());
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(e.Message);
-            }
-            Order limitOrder = await client.PlaceLimitOrder(Side.Buy, "BTC-USD", new decimal(0.2718), 500);
-
-            Console.WriteLine("Limit order placed:");
-            Console.WriteLine("Status: " + limitOrder.Status + ", Rem Size: " + (limitOrder.Size - limitOrder.FilledSize).ToString());
-
-            await client.CancelOrder(limitOrder.OrderId.ToString());
-
-            Console.WriteLine("Cancelled order id=(" + limitOrder.OrderId.ToString() + ").  Current status of limit order is: " + limitOrder.Status);
-
-            
-
-            Console.WriteLine("Getting order book...");
-            OrderBook ordBook = await client.GetOrderBook("BTC-USD", OrderBookLevel.Level2);
-
-            Console.Write("Bids:   ");
-            for (int i = 0; i < ordBook.Bids.Count; i++)
-                Console.Write(ordBook.Bids[i] + "     ");
-
-            Console.WriteLine('\n');
-
-            Console.Write("Asks:   ");
-            for (int i = 0; i < ordBook.Asks.Count; i++)
-                Console.Write(ordBook.Asks[i] + "     ");
-
-
-            Console.WriteLine("Getting account history:");
-            PagedResults<Ledger, int?> hist = await client.GetAccountHistory(accounts[0].Id);
-
-            foreach (Ledger led in hist.Results)
-            {
-                Console.WriteLine("Ledger ID: " + led.Id + ", Order ID: " + led.Details.OrderId + "Product ID: " + led.Details.ProductId + ", Transfer Type: " + led.Details.TransferType);
-            }*/
-
-            RealtimeDataFeed mdataFeed = new RealtimeDataFeed(client);
-            mdataFeed.OnMarketDataMessageReceived += MdataFeed_Updated;
-            await SubscribeToLevel2(PRODUCT_BTCperUSD);
-            Console.ReadKey();
-
-            
-            return;
         }
+        
 
         public void onMsgReceived(RealtimeMessage msg)
         {
