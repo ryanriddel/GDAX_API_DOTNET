@@ -193,15 +193,7 @@ namespace gdax_rsquared
 
             
 
-            Console.WriteLine("Test the 'book' structure");
-            Console.WriteLine(mdataFeed._productBook["BTC-USD"].ToString());
-            Console.WriteLine("\nWaiting....");
-            Thread.Sleep(1000);
-            Console.WriteLine(mdataFeed._productBook["BTC-USD"].ToString());
-            Console.WriteLine("\nWaiting....");
-            Thread.Sleep(1000);
-            Console.WriteLine(mdataFeed._productBook["BTC-USD"].ToString());
-
+           
             Console.WriteLine("\n\n\nTest Complete");
             Console.ReadKey();
         }
